@@ -16,6 +16,7 @@
 - 正式 Application ID 确定为 `com.navobell.arrivalalarm`；Debug 变体使用独立的 `.debug` 后缀。
 - Release 构建启用 R8、资源压缩、Lint 门禁和环境变量签名；高德 Web Key 改为构建时注入，不再保留源码占位密钥。
 - 原手工 Debug APK 脚本改为调用项目 Gradle Wrapper，避免维护第二套编译链。
+- Photon 地点搜索的 User-Agent 改用构建版本号，不再写死旧版本；架构文档删除已不存在的根目录 `src/`、`tests/`、`icons/` 描述。
 
 ## 维护规则
 
