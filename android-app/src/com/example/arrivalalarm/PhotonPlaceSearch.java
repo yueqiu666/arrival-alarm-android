@@ -41,7 +41,7 @@ public final class PhotonPlaceSearch {
         connection.setReadTimeout(1600);
         connection.setUseCaches(true);
         connection.setRequestProperty("Accept", "application/geo+json, application/json");
-        connection.setRequestProperty("User-Agent", "ArrivalAlarm/0.4.2 Android place-search");
+        connection.setRequestProperty("User-Agent", "ArrivalAlarm/" + BuildConfig.VERSION_NAME + " Android place-search");
         try {
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) throw new IOException("Photon HTTP " + status);
