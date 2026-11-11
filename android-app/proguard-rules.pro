@@ -1,3 +1,2 @@
-# The application currently has no reflection, JNI, serialization framework, or
-# dynamically loaded implementation that needs a project-specific keep rule.
-# Add the narrowest possible rule here if a future release-only test proves one is required.
+# Keep the search SDK's public classes as specified by the Amap Android integration guide.
+-keep class com.amap.api.services.** { *; }

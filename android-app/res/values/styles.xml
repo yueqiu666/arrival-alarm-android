@@ -8,6 +8,7 @@
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowBackground">@color/paper</item>
         <item name="android:colorAccent">@color/deep_green</item>
     </style>
     <style name="AppTheme" parent="@style/AppThemeBase" />

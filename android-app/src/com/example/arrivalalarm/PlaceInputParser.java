@@ -19,9 +19,14 @@ public final class PlaceInputParser {
     private static final Pattern NAME_PARAM = Pattern.compile("(?:[?&#;]|\\b)(?:dname|poiname|title|name|address|addr)[:=]([^&#;]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern QUERY_LABEL = Pattern.compile("(?:[?&#;]|\\b)q=" + NUMBER + "[,，]" + NUMBER + "\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE);
 
+    private static final int CRS_UNKNOWN = 0;
+    private static final int CRS_GCJ02 = 1;
+    private static final int CRS_BD09 = 2;
+
     private PlaceInputParser() {}
 
     public static Result parse(String input) {
+        if (PlaceSearchLimits.inputTooLong(input)) return null;
         String raw = input == null ? "" : input.trim();
         if (raw.isEmpty()) return null;
         String decoded = decodeTwice(raw);
@@ -84,7 +89,30 @@ public final class PlaceInputParser {
         }
 
         if (name.isEmpty() && lat == null) return null;
-        return new Result(name, lat, lng, source);
+        int crs = coordinateSystem(lower);
+        if (lat != null) {
+            if (crs == CRS_GCJ02) {
+                double[] wgs = CoordinateTransform.gcj02ToWgs84(lat, lng);
+                lat = wgs[0];
+                lng = wgs[1];
+            } else if (crs == CRS_BD09) {
+                double[] wgs = CoordinateTransform.bd09ToWgs84(lat, lng);
+                lat = wgs[0];
+                lng = wgs[1];
+            }
+        }
+        return new Result(name, lat, lng, source, lat != null && crs != CRS_UNKNOWN);
+    }
+
+    /**
+     * 第三方地图链接携带的经纬度不一定是 WGS-84：高德与腾讯为 GCJ-02，百度为 BD-09。
+     * 无法识别来源时不做转换，避免把本来就正确的坐标改成错的。
+     */
+    private static int coordinateSystem(String lower) {
+        if (lower.contains("baidu.com") || lower.contains("baidumap://")) return CRS_BD09;
+        if (lower.contains("amap.com") || lower.contains("amapuri://") || lower.contains("androidamap://")) return CRS_GCJ02;
+        if (lower.contains("map.qq.com") || lower.contains("qqmap://")) return CRS_GCJ02;
+        return CRS_UNKNOWN;
     }
 
     private static String sourceLabel(String lower) {
@@ -133,12 +161,15 @@ public final class PlaceInputParser {
         public final Double latitude;
         public final Double longitude;
         public final String source;
+        /** 坐标是否来自可识别坐标系并已转换到 WGS-84。 */
+        public final boolean coordinateSystemVerified;
 
-        Result(String name, Double latitude, Double longitude, String source) {
+        Result(String name, Double latitude, Double longitude, String source, boolean coordinateSystemVerified) {
             this.name = name == null ? "" : name;
             this.latitude = latitude;
             this.longitude = longitude;
             this.source = source == null ? "手动输入" : source;
+            this.coordinateSystemVerified = coordinateSystemVerified;
         }
 
         public boolean hasCoordinates() { return latitude != null && longitude != null; }

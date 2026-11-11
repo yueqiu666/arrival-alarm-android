@@ -1,6 +1,7 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
+com.amap.api:search:9.7.1=debugAndroidTestCompileClasspath,debugCompileClasspath,debugLintChecksClasspath,debugRuntimeClasspath,debugUnitTestCompileClasspath,debugUnitTestRuntimeClasspath,releaseCompileClasspath,releaseLintChecksClasspath,releaseRuntimeClasspath
 com.android.tools.analytics-library:protos:32.2.1=androidLintTool,unified-test-platform-android-test-plugin-result-listener-gradle
 com.android.tools.analytics-library:shared:32.2.1=androidLintTool,unified-test-platform-android-test-plugin-result-listener-gradle
 com.android.tools.analytics-library:tracker:32.2.1=androidLintTool

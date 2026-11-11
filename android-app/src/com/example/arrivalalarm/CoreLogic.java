@@ -32,6 +32,20 @@ public final class CoreLogic {
         return Math.min(200.0, clampRadius(radiusMeters) / 2.0);
     }
 
+    static boolean validCoordinates(double latitude, double longitude) {
+        return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+    }
+
+    static boolean usableArrivalFix(LocationFix fix, int radiusMeters) {
+        return validCoordinates(fix.latitude, fix.longitude)
+                && fix.accuracy >= 0 && fix.accuracy <= accuracyLimit(radiusMeters);
+    }
+
+    static boolean freshArrivalFix(long fixNanos, long lastAcceptedNanos, long nowNanos) {
+        return fixNanos > lastAcceptedNanos && fixNanos <= nowNanos
+                && nowNanos - fixNanos <= ReminderRuntime.LOCATION_TIMEOUT_MS * 1_000_000L;
+    }
+
     public static final class LocationFix {
         public final double latitude;
         public final double longitude;
@@ -73,12 +87,15 @@ public final class CoreLogic {
         }
 
         public ArrivalResult update(LocationFix fix) {
+            if (!validCoordinates(fix.latitude, fix.longitude)) {
+                return new ArrivalResult(false, "invalid-coordinates", Double.NaN);
+            }
             double distance = distanceMeters(fix.latitude, fix.longitude, destinationLat, destinationLng);
             if (triggered) return new ArrivalResult(false, "already-triggered", distance);
             if (distance > radiusMeters) {
                 return new ArrivalResult(false, "outside", distance);
             }
-            if (fix.accuracy > accuracyLimit(radiusMeters)) {
+            if (!usableArrivalFix(fix, radiusMeters)) {
                 return new ArrivalResult(false, "low-accuracy", distance);
             }
             triggered = true;

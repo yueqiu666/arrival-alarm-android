@@ -6,10 +6,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -25,6 +22,7 @@ public final class AmapPlaceSearch {
     public static List<AppPrefs.Destination> search(String webKey, String query, Location nearby, int maxResults) throws IOException {
         List<AppPrefs.Destination> results = new ArrayList<>();
         if (webKey == null || webKey.trim().isEmpty() || query == null || query.trim().isEmpty()) return results;
+        if (!PlaceSearchLimits.validQuery(query)) throw new IOException("Invalid place query length");
         StringBuilder url = new StringBuilder(ENDPOINT)
                 .append("?output=JSON&datatype=all&citylimit=false")
                 .append("&keywords=").append(encode(query.trim()))
@@ -41,11 +39,13 @@ public final class AmapPlaceSearch {
         connection.setRequestProperty("Accept-Charset", "UTF-8");
         try {
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) throw new IOException("AMap HTTP " + status);
-            JSONObject root = new JSONObject(readUtf8(connection.getInputStream()));
-            if (!"1".equals(root.optString("status"))) throw new IOException("AMap " + root.optString("info", "error"));
+            PlaceSearchPipeline.checkHttpStatus(status);
+            JSONObject root = new JSONObject(PlaceSearchLimits.readUtf8(connection.getInputStream()));
+            if (!"1".equals(root.optString("status"))) {
+                throw new PlaceSearchPipeline.ProviderException(PlaceSearchPipeline.Failure.CONFIGURATION);
+            }
             JSONArray tips = root.optJSONArray("tips");
-            if (tips == null) return results;
+            if (tips == null) throw new PlaceSearchPipeline.ProviderException(PlaceSearchPipeline.Failure.INVALID_RESPONSE);
             for (int i = 0; i < tips.length() && results.size() < maxResults; i++) {
                 JSONObject tip = tips.optJSONObject(i);
                 if (tip == null) continue;
@@ -58,7 +58,8 @@ public final class AmapPlaceSearch {
                     gcjLng = Double.parseDouble(parts[0]);
                     gcjLat = Double.parseDouble(parts[1]);
                 } catch (NumberFormatException ignored) { continue; }
-                if (gcjLat < -90 || gcjLat > 90 || gcjLng < -180 || gcjLng > 180) continue;
+                if (!Double.isFinite(gcjLat) || !Double.isFinite(gcjLng)
+                        || gcjLat < -90 || gcjLat > 90 || gcjLng < -180 || gcjLng > 180) continue;
                 String name = clean(tip.opt("name"));
                 if (name.isEmpty()) continue;
                 String district = clean(tip.opt("district"));
@@ -86,12 +87,4 @@ public final class AmapPlaceSearch {
         return URLEncoder.encode(value, "UTF-8");
     }
 
-    private static String readUtf8(InputStream stream) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
-        StringBuilder result = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) result.append(line);
-        reader.close();
-        return result.toString();
-    }
 }

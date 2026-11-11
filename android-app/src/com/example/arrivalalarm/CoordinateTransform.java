@@ -26,6 +26,22 @@ public final class CoordinateTransform {
         return new double[]{latitude + dLat, longitude + dLng};
     }
 
+    /** 百度地图 BD-09 -> WGS-84。百度分享链接里的坐标属于 BD-09。 */
+    public static double[] bd09ToWgs84(double latitude, double longitude) {
+        double[] gcj = bd09ToGcj02(latitude, longitude);
+        return gcj02ToWgs84(gcj[0], gcj[1]);
+    }
+
+    /** 百度地图 BD-09 -> GCJ-02。 */
+    public static double[] bd09ToGcj02(double latitude, double longitude) {
+        if (outsideChina(latitude, longitude)) return new double[]{latitude, longitude};
+        double x = longitude - 0.0065;
+        double y = latitude - 0.006;
+        double z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * PI * 3000.0 / 180.0);
+        double theta = Math.atan2(y, x) - 0.000003 * Math.cos(x * PI * 3000.0 / 180.0);
+        return new double[]{z * Math.sin(theta), z * Math.cos(theta)};
+    }
+
     private static boolean outsideChina(double latitude, double longitude) {
         return longitude < 72.004 || longitude > 137.8347 || latitude < 0.8293 || latitude > 55.8271;
     }

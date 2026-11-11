@@ -9,13 +9,18 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 public final class AppPrefs {
     private static final String FILE = "arrival_alarm_private";
     private static final String TASK = "task";
     private static final String RECENTS = "recents";
     private static final String FIXED_ALARMS = "fixed_alarms";
+    private static final int SCHEMA_VERSION = 1;
+    private static final int MAX_RECENTS = 10;
+    private static final String QUARANTINE = "quarantine_";
     private static final String RADIUS = "radius";
+    static final String SHOW_DESTINATION = "show_destination_in_notifications";
     private static final String JOURNEY_ENABLED = "journey_enabled";
     private static final String JOURNEY_SEEN = "journey_seen";
     private static final String APP_WATCH_ENABLED = "app_watch_enabled";
@@ -40,51 +45,111 @@ public final class AppPrefs {
     public int getRadius() { return CoreLogic.clampRadius(prefs.getInt(RADIUS, CoreLogic.DEFAULT_RADIUS_METERS)); }
     public void setRadius(int radius) { prefs.edit().putInt(RADIUS, CoreLogic.clampRadius(radius)).apply(); }
 
+    public boolean showDestinationInNotifications() { return prefs.getBoolean(SHOW_DESTINATION, false); }
+    public void setShowDestinationInNotifications(boolean show) { prefs.edit().putBoolean(SHOW_DESTINATION, show).apply(); }
+    public void registerPreferenceListener(SharedPreferences.OnSharedPreferenceChangeListener listener) { prefs.registerOnSharedPreferenceChangeListener(listener); }
+    public void unregisterPreferenceListener(SharedPreferences.OnSharedPreferenceChangeListener listener) { prefs.unregisterOnSharedPreferenceChangeListener(listener); }
+
     public void saveTask(ReminderTask task) {
-        prefs.edit().putString(TASK, task.toJson().toString()).apply();
+        synchronized (prefs) {
+            prefs.edit().putString(TASK, versioned(task.toJson()).toString()).apply();
+        }
+    }
+
+    void saveTaskAndRecent(ReminderTask task) {
+        synchronized (prefs) {
+            prefs.edit().putString(TASK, versioned(task.toJson()).toString())
+                    .putString(RECENTS, prependRecent(task.destination)).apply();
+        }
     }
 
     public ReminderTask getTask() {
-        String raw = prefs.getString(TASK, null);
-        if (raw == null) return null;
-        try { return ReminderTask.fromJson(new JSONObject(raw)); }
-        catch (JSONException ignored) { return null; }
+        synchronized (prefs) {
+            String raw = readString(TASK);
+            if (raw == null) return null;
+            try {
+                JSONObject record = new JSONObject(raw);
+                ReminderTask task = supported(record) ? ReminderTask.fromJson(record) : null;
+                if (task != null) return task;
+            } catch (JSONException malformed) {
+                // Preserve the original before treating it as unavailable.
+            }
+            quarantine(TASK, raw);
+            return null;
+        }
     }
 
-    public void clearTask() { prefs.edit().remove(TASK).apply(); }
+    public void clearTask() {
+        synchronized (prefs) { prefs.edit().remove(TASK).apply(); }
+    }
 
     public List<Destination> getRecents() {
-        List<Destination> result = new ArrayList<>();
-        try {
-            JSONArray array = new JSONArray(prefs.getString(RECENTS, "[]"));
-            for (int i = 0; i < array.length() && result.size() < 10; i++) {
-                Destination place = Destination.fromJson(array.getJSONObject(i));
-                if (place != null) result.add(place);
-            }
-        } catch (JSONException ignored) { }
-        return result;
+        return readList(RECENTS, MAX_RECENTS, Destination::fromJson);
     }
 
     public void addRecent(Destination destination) {
-        List<Destination> current = getRecents();
+        synchronized (prefs) { prefs.edit().putString(RECENTS, prependRecent(destination)).apply(); }
+    }
+
+    private String prependRecent(Destination destination) {
         JSONArray array = new JSONArray();
-        array.put(destination.toJson());
-        for (Destination item : current) {
-            if (!item.id.equals(destination.id) && array.length() < 10) array.put(item.toJson());
+        array.put(versioned(destination.toJson()));
+        for (Destination item : getRecents()) {
+            if (!item.id.equals(destination.id) && array.length() < MAX_RECENTS) array.put(versioned(item.toJson()));
         }
-        prefs.edit().putString(RECENTS, array.toString()).apply();
+        return array.toString();
     }
 
     public List<FixedAlarm> getFixedAlarms() {
-        List<FixedAlarm> result = new ArrayList<>();
-        try {
-            JSONArray array = new JSONArray(prefs.getString(FIXED_ALARMS, "[]"));
-            for (int i = 0; i < array.length(); i++) {
-                FixedAlarm alarm = FixedAlarm.fromJson(array.getJSONObject(i));
-                if (alarm != null) result.add(alarm);
+        return readList(FIXED_ALARMS, Integer.MAX_VALUE, FixedAlarm::fromJson);
+    }
+
+    private <T> List<T> readList(String key, int limit, Function<JSONObject, T> decoder) {
+        synchronized (prefs) {
+            List<T> result = new ArrayList<>();
+            String raw = readString(key);
+            if (raw == null) return result;
+            try {
+                JSONArray array = new JSONArray(raw);
+                for (int i = 0; i < array.length() && result.size() < limit; i++) {
+                    JSONObject entry = array.optJSONObject(i);
+                    T item = entry != null && supported(entry) ? decoder.apply(entry) : null;
+                    if (item == null) quarantine(key, raw);
+                    else result.add(item);
+                }
+            } catch (JSONException malformed) {
+                quarantine(key, raw);
             }
-        } catch (JSONException ignored) { }
-        return result;
+            return result;
+        }
+    }
+
+    private String readString(String key) {
+        try { return prefs.getString(key, null); }
+        catch (ClassCastException wrongType) {
+            quarantine(key, String.valueOf(prefs.getAll().get(key)));
+            return null;
+        }
+    }
+
+    private static JSONObject versioned(JSONObject record) {
+        try { return record.put("schemaVersion", SCHEMA_VERSION); }
+        catch (JSONException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private static boolean supported(JSONObject record) {
+        int version = record.optInt("schemaVersion", record.has("schemaVersion") ? -1 : 0);
+        return version == 0 || version == SCHEMA_VERSION;
+    }
+
+    private void quarantine(String key, String raw) {
+        String backup = QUARANTINE + key;
+        if (!prefs.contains(backup)) prefs.edit().putString(backup, raw).apply();
+    }
+
+    boolean hasUnreadableData() {
+        return prefs.contains(QUARANTINE + TASK) || prefs.contains(QUARANTINE + RECENTS)
+                || prefs.contains(QUARANTINE + FIXED_ALARMS);
     }
 
     public FixedAlarm getFixedAlarm(String id) {
@@ -94,26 +159,48 @@ public final class AppPrefs {
     }
 
     public void saveFixedAlarm(FixedAlarm alarm) {
-        List<FixedAlarm> alarms = getFixedAlarms();
-        JSONArray array = new JSONArray();
-        boolean replaced = false;
-        for (FixedAlarm item : alarms) {
-            if (item.id.equals(alarm.id)) {
-                array.put(alarm.toJson());
-                replaced = true;
-            } else array.put(item.toJson());
+        synchronized (prefs) {
+            List<FixedAlarm> alarms = getFixedAlarms();
+            JSONArray array = new JSONArray();
+            boolean replaced = false;
+            for (FixedAlarm item : alarms) {
+                if (item.id.equals(alarm.id)) {
+                    array.put(versioned(alarm.toJson()));
+                    replaced = true;
+                } else array.put(versioned(item.toJson()));
+            }
+            if (!replaced) array.put(versioned(alarm.toJson()));
+            prefs.edit().putString(FIXED_ALARMS, array.toString()).apply();
         }
-        if (!replaced) array.put(alarm.toJson());
-        prefs.edit().putString(FIXED_ALARMS, array.toString()).apply();
     }
 
     public void removeFixedAlarm(String id) {
-        JSONArray array = new JSONArray();
-        for (FixedAlarm alarm : getFixedAlarms()) if (!alarm.id.equals(id)) array.put(alarm.toJson());
-        prefs.edit().putString(FIXED_ALARMS, array.toString()).apply();
+        synchronized (prefs) {
+            JSONArray array = new JSONArray();
+            for (FixedAlarm alarm : getFixedAlarms()) {
+                if (!alarm.id.equals(id)) array.put(versioned(alarm.toJson()));
+            }
+            prefs.edit().putString(FIXED_ALARMS, array.toString()).apply();
+        }
     }
 
     public boolean isJourneyEnabled() { return prefs.getBoolean(JOURNEY_ENABLED, false); }
+    public void disableDeferredAutomation() {
+        prefs.edit()
+                .putBoolean(JOURNEY_ENABLED, false)
+                .putBoolean(JOURNEY_SEEN, true)
+                .putBoolean(APP_WATCH_ENABLED, false)
+                .putBoolean(TRANSIT_WATCH_ENABLED, false)
+                .putBoolean(STATION_WATCH_ENABLED, false)
+                .putString(JOURNEY_STATE, CoreLogic.JourneyDetector.DISABLED)
+                .remove(ANCHOR_LAT)
+                .remove(ANCHOR_LNG)
+                .remove(CONFIRM_LAT)
+                .remove(CONFIRM_LNG)
+                .remove(CONFIRM_TIME)
+                .remove(STILL_SINCE)
+                .apply();
+    }
     public void setJourneyEnabled(boolean enabled) {
         SharedPreferences.Editor editor = prefs.edit().putBoolean(JOURNEY_ENABLED, enabled);
         if (!enabled) editor.putString(JOURNEY_STATE, CoreLogic.JourneyDetector.DISABLED).remove(ANCHOR_LAT).remove(ANCHOR_LNG);
@@ -166,7 +253,9 @@ public final class AppPrefs {
         return detector;
     }
 
-    public void clearAll() { prefs.edit().clear().apply(); }
+    public void clearAll() {
+        synchronized (prefs) { prefs.edit().clear().apply(); }
+    }
 
     public static final class Destination {
         public final String id;
@@ -194,13 +283,21 @@ public final class AppPrefs {
 
         static Destination fromJson(JSONObject json) {
             try {
+                double latitude = json.getDouble("latitude");
+                double longitude = json.getDouble("longitude");
+                if (!CoreLogic.validCoordinates(latitude, longitude)) return null;
                 return new Destination(json.getString("id"), json.getString("name"), json.optString("address"), json.optString("city"),
-                        json.getDouble("latitude"), json.getDouble("longitude"));
+                        latitude, longitude);
             } catch (JSONException ignored) { return null; }
         }
     }
 
     public static final class ReminderTask {
+        public static final String STATUS_STARTING = "starting";
+        public static final String STATUS_ACTIVE = "active";
+        public static final String STATUS_ALERTING = "alerting";
+        public static final String STATUS_INTERRUPTED = "interrupted";
+
         public final String id;
         public final Destination destination;
         public final int radiusMeters;
@@ -218,12 +315,24 @@ public final class AppPrefs {
             this.lastDistanceMeters = Double.NaN;
         }
 
+        public boolean isActive() { return STATUS_ACTIVE.equals(status); }
+        public boolean isStarting() { return STATUS_STARTING.equals(status); }
+        public boolean isAlerting() { return STATUS_ALERTING.equals(status); }
+        public boolean isInterrupted() { return STATUS_INTERRUPTED.equals(status); }
+        public void markInterrupted() {
+            if (isStarting() || isActive()) status = STATUS_INTERRUPTED;
+        }
+        public void resume() {
+            status = STATUS_STARTING;
+        }
+        public void markActive() {
+            if (isStarting()) status = STATUS_ACTIVE;
+        }
+
         JSONObject toJson() {
             try {
-                JSONObject json = new JSONObject().put("id", id).put("destination", destination.toJson()).put("radiusMeters", radiusMeters)
+                return new JSONObject().put("id", id).put("destination", destination.toJson()).put("radiusMeters", radiusMeters)
                         .put("status", status).put("startedAt", startedAt).put("triggeredAt", triggeredAt);
-                if (!Double.isNaN(lastDistanceMeters) && !Double.isInfinite(lastDistanceMeters)) json.put("lastDistanceMeters", lastDistanceMeters);
-                return json;
             } catch (JSONException impossible) { throw new IllegalStateException(impossible); }
         }
 
@@ -232,7 +341,6 @@ public final class AppPrefs {
             if (destination == null) return null;
             ReminderTask task = new ReminderTask(json.getString("id"), destination, json.getInt("radiusMeters"), json.getString("status"), json.getLong("startedAt"));
             task.triggeredAt = json.optLong("triggeredAt", 0L);
-            task.lastDistanceMeters = json.optDouble("lastDistanceMeters", Double.NaN);
             return task;
         }
     }

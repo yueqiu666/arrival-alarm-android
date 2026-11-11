@@ -4,7 +4,6 @@ import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 
 import java.util.TimeZone;
 
@@ -26,11 +25,7 @@ public final class ScheduleManager {
         long trigger = ScheduleLogic.nextTriggerMillis(alarm.hour, alarm.minute, alarm.daysMask,
                 System.currentTimeMillis(), TimeZone.getDefault());
         PendingIntent operation = operation(context, alarm.id, PendingIntent.FLAG_UPDATE_CURRENT);
-        if (Build.VERSION.SDK_INT < 31 || manager.canScheduleExactAlarms()) {
-            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation);
-        } else {
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation);
-        }
+        manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation);
     }
 
     public static void cancel(Context context, String id) {
@@ -40,8 +35,7 @@ public final class ScheduleManager {
     }
 
     public static boolean hasExactAlarmAccess(Context context) {
-        AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        return Build.VERSION.SDK_INT < 31 || manager == null || manager.canScheduleExactAlarms();
+        return false;
     }
 
     private static PendingIntent operation(Context context, String id, int flag) {

@@ -6,10 +6,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -27,6 +24,7 @@ public final class PhotonPlaceSearch {
 
     public static List<AppPrefs.Destination> search(String query, Location nearby, int maxResults) throws IOException {
         if (query == null || query.trim().isEmpty()) return new ArrayList<>();
+        if (!PlaceSearchLimits.validQuery(query)) throw new IOException("Invalid place query length");
         waitForResponsibleRate();
         StringBuilder url = new StringBuilder(ENDPOINT)
                 .append("?q=").append(encode(query.trim()))
@@ -44,11 +42,11 @@ public final class PhotonPlaceSearch {
         connection.setRequestProperty("User-Agent", "ArrivalAlarm/0.4.2 Android place-search");
         try {
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) throw new IOException("Photon HTTP " + status);
-            JSONObject root = new JSONObject(readUtf8(connection.getInputStream()));
+            PlaceSearchPipeline.checkHttpStatus(status);
+            JSONObject root = new JSONObject(PlaceSearchLimits.readUtf8(connection.getInputStream()));
             JSONArray features = root.optJSONArray("features");
             List<AppPrefs.Destination> results = new ArrayList<>();
-            if (features == null) return results;
+            if (features == null) throw new PlaceSearchPipeline.ProviderException(PlaceSearchPipeline.Failure.INVALID_RESPONSE);
             for (int i = 0; i < features.length(); i++) {
                 JSONObject feature = features.optJSONObject(i);
                 if (feature == null) continue;
@@ -100,7 +98,7 @@ public final class PhotonPlaceSearch {
         try { Thread.sleep(delay); }
         catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            throw new IOException("Photon request cancelled", interrupted);
+            throw new PlaceSearchPipeline.ProviderException(PlaceSearchPipeline.Failure.CANCELLED);
         }
     }
 
@@ -125,12 +123,4 @@ public final class PhotonPlaceSearch {
 
     private static String encode(String value) throws IOException { return URLEncoder.encode(value, "UTF-8"); }
 
-    private static String readUtf8(InputStream stream) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
-        StringBuilder result = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) result.append(line);
-        reader.close();
-        return result.toString();
-    }
 }

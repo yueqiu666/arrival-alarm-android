@@ -9,7 +9,7 @@
 ## Secrets and signing
 
 - 不要提交 `.env`、`local.properties`、Keystore、证书、私钥、APK 或 AAB。
-- 地图服务 Key 只应通过 `ARRIVAL_AMAP_WEB_KEY` 环境变量在构建时注入。
+- 高德 Android 测试 Key 通过 Git 忽略的 `android-app/local.properties` 配置。Release Key 从 `ARRIVAL_AMAP_ANDROID_RELEASE_KEY` 读取。可选的高德 Web 服务 Key 通过 `ARRIVAL_AMAP_WEB_KEY` 注入。具体配置见 [Android 构建说明](android-app/README.md#高德-android-搜索)。
 - 正式发行必须使用与本项目调试证书完全分离的发行签名，并由发布者安全保管。
 
 ## Scope

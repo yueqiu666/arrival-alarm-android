@@ -47,7 +47,12 @@ jobs:
           ARRIVAL_UPLOAD_STORE_PASSWORD: ${{ secrets.ARRIVAL_UPLOAD_STORE_PASSWORD }}
           ARRIVAL_UPLOAD_KEY_ALIAS: ${{ secrets.ARRIVAL_UPLOAD_KEY_ALIAS }}
           ARRIVAL_UPLOAD_KEY_PASSWORD: ${{ secrets.ARRIVAL_UPLOAD_KEY_PASSWORD }}
-        run: .\gradlew.bat clean testDebugUnitTest lintRelease verifyPlayBundle --no-daemon
+          ARRIVAL_AMAP_ANDROID_RELEASE_KEY: ${{ secrets.ARRIVAL_AMAP_ANDROID_RELEASE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ARRIVAL_AMAP_ANDROID_RELEASE_KEY)) {
+            throw 'Configure ARRIVAL_AMAP_ANDROID_RELEASE_KEY in the play-release environment.'
+          }
+          .\gradlew.bat clean testDebugUnitTest lintRelease verifyPlayBundle --no-daemon
 
       - name: Upload signed bundle and mapping
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
