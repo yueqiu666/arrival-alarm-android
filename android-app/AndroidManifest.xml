@@ -1,22 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <permission
+        android:name="${applicationId}.permission.INTERNAL_STATUS"
+        android:protectionLevel="signature" />
 
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Special access granted by the user in Settings; required for journey detection. -->
-    <uses-permission
-        android:name="android.permission.PACKAGE_USAGE_STATS"
-        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="${applicationId}.permission.INTERNAL_STATUS" />
 
     <uses-feature android:name="android.hardware.location" android:required="true" />
 
@@ -34,9 +30,7 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"
-            android:showWhenLocked="true"
-            android:theme="@style/AlarmTheme"
-            android:turnScreenOn="true" />
+            android:theme="@style/AlarmTheme" />
 
         <activity
             android:name=".MainActivity"
@@ -63,20 +57,6 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="arrivalalarm" android:host="set" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="uri.amap.com" />
-                <data android:scheme="https" android:host="ditu.amap.com" />
-                <data android:scheme="https" android:host="surl.amap.com" />
-                <data android:scheme="https" android:host="map.baidu.com" />
-                <data android:scheme="https" android:host="map.qq.com" />
-                <data android:scheme="https" android:host="www.12306.cn" />
-                <data android:scheme="https" android:host="m.12306.cn" />
-                <data android:scheme="https" android:host="v.didi.cn" />
-                <data android:scheme="https" android:host="page.udache.com" />
-            </intent-filter>
         </activity>
 
         <service
@@ -84,35 +64,8 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
-        <service
-            android:name=".TransitNotificationListener"
-            android:exported="false"
-            android:label="出行信号识别"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.notification.default_filter_types"
-                android:value="alerting|ongoing" />
-        </service>
-
         <receiver
             android:name=".ActionReceiver"
             android:exported="false" />
-
-        <receiver
-            android:name=".FixedAlarmReceiver"
-            android:exported="false" />
-
-        <receiver
-            android:name=".BootReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>

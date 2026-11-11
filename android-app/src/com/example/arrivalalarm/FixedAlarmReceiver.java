@@ -1,9 +1,9 @@
 package com.example.arrivalalarm;
 
-import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
@@ -35,14 +35,10 @@ public final class FixedAlarmReceiver extends BroadcastReceiver {
 
         long now = System.currentTimeMillis();
         AppPrefs.ReminderTask task = new AppPrefs.ReminderTask("fixed-task-" + now, alarm.destination,
-                prefs.getRadius(), "active", now);
+                prefs.getRadius(), AppPrefs.ReminderTask.STATUS_STARTING, now);
         prefs.saveTask(task);
         prefs.addRecent(alarm.destination);
-        try {
-            Intent service = new Intent(context, TrackingService.class).setAction(TrackingService.ACTION_START_REMINDER);
-            context.startForegroundService(service);
-        } catch (RuntimeException blocked) {
-            prefs.clearTask();
+        if (!ReminderRuntimeCoordinator.startReminder(context)) {
             FixedAlarmPrompt.show(context, alarm, "系统限制了后台自动启动。点按即可立即开始守候。");
         }
     }

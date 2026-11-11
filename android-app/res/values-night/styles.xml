@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppThemeBase" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:statusBarColor">@color/paper</item>
+        <item name="android:navigationBarColor">@color/paper</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:colorAccent">@color/deep_green</item>
+    </style>
+    <style name="AppTheme" parent="@style/AppThemeBase" />
+    <style name="AlarmTheme" parent="@style/AppThemeBase">
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="deep_green">#9BC5FF</color>
+    <color name="paper">#121419</color>
+    <color name="ink">#F0F1F5</color>
+    <color name="muted">#B9BFCC</color>
+    <color name="surface">#20242C</color>
+    <color name="soft_blue">#233851</color>
+    <color name="separator">#424957</color>
+    <color name="danger">#FFB4AB</color>
+    <color name="primary_button">#9BC5FF</color>
+    <color name="on_primary_button">#071E37</color>
+    <color name="home_panel">#283868</color>
+</resources>
