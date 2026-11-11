@@ -10,6 +10,8 @@ import android.app.PendingIntent;
 import android.app.UiAutomation;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -347,31 +349,40 @@ final class Api35ReminderGate {
     }
 
     private void verifyAlarmLifecycle(Bundle result) throws Exception {
+        check(!alarmAudioPlaying(), "another alarm is already playing on the fixture");
         onMain(this::enqueueStart);
         await("first arrival must show a single alarm and stop location updates", this::hasActiveAlarm);
         Notification first = alarmNotification().getNotification();
+        check(activity.getSystemService(NotificationManager.class)
+                        .getNotificationChannel(first.getChannelId()).getSound() == null,
+                "the confirmation channel must not supply alarm audio");
+        await("alarm must play on the system alarm stream", this::alarmAudioPlaying);
         check("到站提醒已触发".contentEquals(first.extras.getCharSequence(Notification.EXTRA_TITLE)),
                 "initial notification must hide the destination");
         PendingIntent staleAction = first.actions[0].actionIntent;
         staleAction.send();
         awaitStopped("arrival notification action");
+        await("arrival confirmation must stop audio", () -> !alarmAudioPlaying());
         await("first alarm notification must be gone", () -> alarmNotification() == null);
 
         onMain(this::enqueueStart);
         await("second arrival must show a single alarm", this::hasActiveAlarm);
+        await("second arrival must start alarm audio", this::alarmAudioPlaying);
         long postedAt = alarmNotification().getPostTime();
         staleAction.send();
         instrumentation.waitForIdleSync();
         check(hasActiveAlarm(), "an old notification action affected the new task");
-        await("the notification must be posted again for the next pulse", 40_000L, () ->
-                hasActiveAlarm() && alarmNotification().getPostTime() > postedAt);
-        Log.i(TAG, "arrival repeat posted, waiting for the bounded session to finish");
+        SystemClock.sleep(32_000L);
+        check(hasActiveAlarm() && alarmAudioPlaying() && alarmNotification().getPostTime() == postedAt,
+                "alarm must keep playing without reposting its notification");
+        Log.i(TAG, "alarm playback active after 32 seconds, waiting for automatic stop");
         await("alarm window must end with notification retained and service stopped", 290_000L, () -> {
             AppPrefs.ReminderTask task = prefs.getTask();
             StatusBarNotification alarm = alarmNotification();
             return trackingService() == null && task != null && task.isAlerting()
                     && alarm != null && (alarm.getNotification().flags & Notification.FLAG_FOREGROUND_SERVICE) == 0;
         });
+        await("the alarm timeout must stop audio", () -> !alarmAudioPlaying());
         Notification detached = alarmNotification().getNotification();
         onMain(() -> {
             prefs.setShowDestinationInNotifications(true);
@@ -387,6 +398,11 @@ final class Api35ReminderGate {
         awaitStopped("detached alarm confirmation");
         await("detached alarm notification must be gone", () -> alarmNotification() == null);
         result.putString("alarm_lifecycle", "PASS");
+    }
+
+    private boolean alarmAudioPlaying() {
+        return activity.getSystemService(AudioManager.class).getActivePlaybackConfigurations().stream()
+                .anyMatch(config -> config.getAudioAttributes().getUsage() == AudioAttributes.USAGE_ALARM);
     }
 
     private boolean hasActiveAlarm() {

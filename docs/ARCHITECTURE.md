@@ -53,7 +53,7 @@
 3. `ReminderRuntimeCoordinator` 以 `ACTION_START_REMINDER` 启动 `TrackingService`。
 4. `TrackingService` 进入前台并成功注册至少一个定位 Provider 后，将任务提交为 `active`；在此之前任务不会被持久化为 active。短暂监听异常会在服务内部进行有限重试；权限、Provider 关闭、前台启动限制或重试耗尽后转为 `interrupted`，并提供手动恢复入口。
 5. `TrackingService` 通过 `CoreLogic` 丢弃低精度、非法坐标、过旧或乱序定位。实时距离随任务 ID 保存在进程内，任务只在状态变更时持久化。
-6. 到站后定位停止，系统通知渠道负责声振。提醒窗口结束时服务退出，通知和待确认任务保留。通知或页面确认通过协调器检查任务 ID 并清理。
+6. 到站后停止定位，`TrackingService` 切换到媒体播放前台服务类型，`ArrivalAlarm` 使用系统闹钟音量循环播放默认闹钟铃声并振动。「到站确认」通知提供闹钟页和确认入口。确认、停止或替换任务会停止声振。五分钟后服务退出，通知和待确认任务保留。
 
 任务的持久化状态和服务运行态是两个独立事实。`ReminderStateLogic` 只有在任务为 `active`、当前进程中的 `TrackingService` 存在且心跳未过期时才判定为“正在监控”；应用打开时若本地仍有任务但服务不在运行，会立即标记为 `interrupted`，首页显示“需要恢复”和一个恢复按钮。恢复只能由用户在可见 Activity 或恢复通知中主动触发，服务使用 `START_NOT_STICKY`，不会因系统重启或进程终止自行拉起。
 
