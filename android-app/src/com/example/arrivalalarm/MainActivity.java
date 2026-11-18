@@ -4,6 +4,9 @@ import android.annotation.SuppressLint;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -57,6 +60,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_CORE_PERMISSIONS = 1001;
+    private static final int REQUEST_DEBUG_LOG_EXPORT = 1002;
+    private static final int REQUEST_PERMISSION_LOG_EXPORT = 1003;
     private static final String PRIVACY_POLICY_URL = "https://github.com/yueqiu666/arrival-alarm-android/blob/main/PRIVACY.md";
     private int GREEN;
     private int INK;
@@ -81,6 +86,7 @@ public final class MainActivity extends Activity {
     private AppPrefs.Destination pendingDestination;
     private boolean pendingResume;
     private String pendingResumeId;
+    private String notificationResumeTaskId;
     private boolean permissionInFlight;
     private boolean permissionGranted;
     private boolean checkingSettings;
@@ -136,6 +142,7 @@ public final class MainActivity extends Activity {
             pendingDestination = HomeUiState.getPlace(savedInstanceState, "pendingDestination");
             pendingResumeId = savedInstanceState.getString("pendingResumeId");
             pendingResume = pendingResumeId != null;
+            notificationResumeTaskId = savedInstanceState.getString("notificationResumeTaskId");
             permissionInFlight = savedInstanceState.getBoolean("permissionInFlight");
             permissionGranted = savedInstanceState.getBoolean("permissionGranted");
             checkingSettings = savedInstanceState.getBoolean("checkingSettings");
@@ -161,6 +168,7 @@ public final class MainActivity extends Activity {
         state.putBoolean("amap", amapAndroidSearchEnabled);
         HomeUiState.putPlace(state, "pendingDestination", pendingDestination);
         state.putString("pendingResumeId", pendingResumeId);
+        state.putString("notificationResumeTaskId", notificationResumeTaskId);
         state.putBoolean("permissionInFlight", permissionInFlight);
         state.putBoolean("permissionGranted", permissionGranted);
         state.putBoolean("checkingSettings", checkingSettings);
@@ -173,9 +181,16 @@ public final class MainActivity extends Activity {
     protected void onPostResume() {
         super.onPostResume();
         resumed = true;
+        if (BuildConfig.DEBUG) {
+            DebugReminderLog.permission(this, checkingSettings ? "settings_returned" : "app_resumed", "");
+        }
         updatePermissionStatus(checkingSettings);
         checkingSettings = false;
         if (permissionGranted) completePermissionRequest();
+        if (resumeFromNotification()) {
+            restoreWork = false;
+            return;
+        }
         if (!restoreWork) return;
         restoreWork = false;
         if (homeDialog != null) {
@@ -437,7 +452,6 @@ public final class MainActivity extends Activity {
             root.addView(searchSource, matchWrap());
         }
         permissionStatus = secondaryButton("");
-        permissionStatus.setOnClickListener(view -> openPermissionSettings());
         permissionStatus.setVisibility(View.GONE);
         root.addView(permissionStatus, matchWrap());
         storageStatus = text(getString(R.string.storage_unreadable), 14, Typeface.NORMAL, DANGER);
@@ -484,7 +498,10 @@ public final class MainActivity extends Activity {
             confirmCoordinateDestination(parsed);
             return;
         }
-        if (!PlaceSearchLimits.validQuery(query)) {
+        final String searchTerm = parsed != null && !parsed.name.isEmpty()
+                && (query.contains("://") || query.regionMatches(true, 0, "geo:", 0, 4))
+                ? parsed.name : query;
+        if (!PlaceSearchLimits.validQuery(searchTerm)) {
             renderSuggestionMessage("搜索词过长，请使用城市和地点名称（最多 200 字）");
             return;
         }
@@ -495,7 +512,7 @@ public final class MainActivity extends Activity {
         final long activityToken = activityGeneration;
         suggestionFuture = placeSearchExecutor.submit(new Runnable() {
             @Override public void run() {
-                final PlaceSearchPipeline.Result<AppPrefs.Destination> queryResult = placeSearch.query(query, 7, false, amapTrial);
+                final PlaceSearchPipeline.Result<AppPrefs.Destination> queryResult = placeSearch.query(searchTerm, 7, false, amapTrial);
                 final List<AppPrefs.Destination> results = queryResult.places;
                 runOnUiThread(new Runnable() {
                     @Override public void run() {
@@ -828,6 +845,22 @@ public final class MainActivity extends Activity {
         toast("已停止提醒");
     }
 
+    private boolean resumeFromNotification() {
+        String taskId = notificationResumeTaskId;
+        notificationResumeTaskId = null;
+        if (taskId == null || permissionInFlight) return false;
+        AppPrefs.ReminderTask task = prefs.getTask();
+        if (task == null || !task.isInterrupted() || !taskId.equals(task.id)) return false;
+        dismissHomeDialog();
+        cancelActivityAsyncWork();
+        submittedQuery = null;
+        submittedShare = null;
+        destinationInput.setEnabled(true);
+        clearPendingPermission();
+        resumeReminder();
+        return true;
+    }
+
     private void resumeReminder() {
         AppPrefs.ReminderTask task = prefs.getTask();
         if (task == null) return;
@@ -851,6 +884,9 @@ public final class MainActivity extends Activity {
     }
 
     private void requestCorePermissions() {
+        if (BuildConfig.DEBUG) {
+            DebugReminderLog.permission(this, "reminder_blocked_by_permission", pendingResume ? "resume" : "start");
+        }
         showHomeDialog(new HomeUiState.Dialog(HomeUiState.DialogKind.PERMISSIONS,
                 getString(R.string.allow_permissions),
                 getString(R.string.allow_permissions_message),
@@ -865,6 +901,7 @@ public final class MainActivity extends Activity {
             return;
         }
         permissionInFlight = true;
+        if (BuildConfig.DEBUG) DebugReminderLog.permission(this, "permission_requested", "");
         requestPermissions(permissions, REQUEST_CORE_PERMISSIONS);
     }
 
@@ -873,6 +910,9 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != REQUEST_CORE_PERMISSIONS) return;
         permissionInFlight = false;
+        if (BuildConfig.DEBUG) {
+            DebugReminderLog.permission(this, "permission_result", grantResults.length == 0 ? "cancelled" : "");
+        }
         updatePermissionStatus(false);
         if (!ReminderPermissions.hasLocation(this)) {
             clearPendingPermission();
@@ -916,11 +956,25 @@ public final class MainActivity extends Activity {
         permissionInFlight = false;
     }
 
-    private void openPermissionSettings() {
+    private Intent appDetailsSettings() {
+        return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null));
+    }
+
+    private Intent appNotificationSettings() {
+        return new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+    }
+
+    private void openPermissionSettings(Intent settings) {
         try {
             checkingSettings = true;
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null)));
-        } catch (android.content.ActivityNotFoundException unavailable) {
+            try {
+                startActivity(settings);
+            } catch (ActivityNotFoundException unavailable) {
+                if (Settings.ACTION_APPLICATION_DETAILS_SETTINGS.equals(settings.getAction())) throw unavailable;
+                startActivity(appDetailsSettings());
+            }
+            if (BuildConfig.DEBUG) DebugReminderLog.permission(this, "settings_opened", "");
+        } catch (ActivityNotFoundException unavailable) {
             checkingSettings = false;
             toast(getString(R.string.permission_settings_unavailable));
         }
@@ -929,18 +983,58 @@ public final class MainActivity extends Activity {
     private void updatePermissionStatus(boolean returning) {
         if (permissionStatus == null) return;
         boolean location = ReminderPermissions.hasLocation(this);
-        boolean notifications = ReminderPermissions.hasNotifications(this);
-        permissionStatus.setVisibility(location && notifications ? View.GONE : View.VISIBLE);
-        permissionStatus.setText(!location && !notifications ? getString(R.string.permission_settings_missing_both)
-                : !location ? getString(R.string.permission_settings_missing_location) : getString(R.string.permission_settings_missing_notifications));
-        if (returning) toast(location && notifications ? getString(R.string.permission_settings_ready)
-                : getString(R.string.permission_settings_incomplete));
+        boolean notificationPermission = ReminderPermissions.hasNotifications(this);
+        String warning = null;
+        Intent settings = null;
+        if (!location || !notificationPermission) {
+            warning = getString(!location && !notificationPermission ? R.string.permission_settings_missing_both
+                    : !location ? R.string.permission_settings_missing_location : R.string.permission_settings_missing_notifications);
+            settings = appDetailsSettings();
+        } else {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null || !manager.areNotificationsEnabled()) {
+                warning = getString(manager == null ? R.string.permission_settings_notification_unknown
+                        : R.string.permission_settings_app_notifications_off);
+                settings = appNotificationSettings();
+            } else {
+                NotificationChannel blocked = blockedReminderChannel(manager);
+                if (blocked != null) {
+                    warning = getString(R.string.permission_settings_channel_off, blocked.getName());
+                    settings = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                            .putExtra(Settings.EXTRA_CHANNEL_ID, blocked.getId());
+                }
+            }
+        }
+        permissionStatus.setVisibility(warning == null ? View.GONE : View.VISIBLE);
+        permissionStatus.setText(warning);
+        final Intent destination = settings;
+        permissionStatus.setOnClickListener(destination == null ? null : view -> openPermissionSettings(destination));
+        if (returning) toast(warning == null ? getString(R.string.permission_settings_ready) : warning);
+    }
+
+    private static NotificationChannel blockedReminderChannel(NotificationManager manager) {
+        for (String id : new String[]{TrackingService.CHANNEL_TRACKING, ArrivalNotification.CHANNEL,
+                ReminderRuntimeCoordinator.CHANNEL_RESTORE}) {
+            NotificationChannel channel = manager.getNotificationChannel(id);
+            // Channels are created when first needed, so a missing channel is not a user block.
+            if (channel != null && channel.getImportance() == NotificationManager.IMPORTANCE_NONE) return channel;
+        }
+        return null;
     }
 
     private boolean hasCorePermissions() { return ReminderRuntimeCoordinator.hasCorePermissions(this); }
 
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+        notificationResumeTaskId = null;
+        if (ReminderRuntimeCoordinator.ACTION_RESUME_REMINDER.equals(intent.getAction())) {
+            Uri data = intent.getData();
+            if (data != null && ReminderRuntimeCoordinator.RESUME_TASK_SCHEME.equals(data.getScheme())) {
+                notificationResumeTaskId = data.getSchemeSpecificPart();
+            }
+            return;
+        }
         if (ShareParser.isInputTooLong(intent)) {
             toast("分享内容过长，请使用较短的地点名称或分享链接");
             return;
@@ -985,7 +1079,7 @@ public final class MainActivity extends Activity {
                         String coordinate = String.format(Locale.CHINA, "%.6f, %.6f", latitude, longitude);
                         String verification = address.isEmpty() ? "系统无法反查地址，请确认地点名称和坐标。" : "系统反查：" + address;
                         String coordinateSystem = parsed.coordinateSystemVerified
-                                ? "坐标系：已按来源转换到 WGS-84"
+                                ? "坐标系：WGS-84"
                                 : "坐标系：未能识别来源，已按原值使用，请核对下面的地址";
                         String message = name + "\n" + verification + "\n来源：" + parsed.source + "\n" + coordinateSystem + "\n坐标：" + coordinate;
                         String savedAddress = address.isEmpty() ? parsed.source : address;
@@ -1032,7 +1126,9 @@ public final class MainActivity extends Activity {
                     break;
                 case WAITING_LOCATION:
                     activeLabel.setText(R.string.status_waiting);
-                    activeMeta.setText(getString(R.string.meta_awaiting_first_fix, formatRadius(task.radiusMeters)));
+                    int locationMessage = runtimeSnapshot.lastLocationElapsedRealtime > 0L
+                            ? R.string.meta_waiting_location : R.string.meta_awaiting_first_fix;
+                    activeMeta.setText(getString(locationMessage, formatRadius(task.radiusMeters)));
                     break;
                 case ALERTING:
                     activeLabel.setText(R.string.status_arrived);
@@ -1121,6 +1217,23 @@ public final class MainActivity extends Activity {
         showDestination.setChecked(prefs.showDestinationInNotifications());
         content.addView(showDestination, matchWrap());
         content.addView(privacy, matchWrap());
+        if (BuildConfig.DEBUG) {
+            Button permissionTest = actionButton("测试权限", 14, INK, Color.TRANSPARENT, SEPARATOR);
+            permissionTest.setOnClickListener(view -> {
+                DebugReminderLog.permission(this, "permission_test_started", "");
+                if (hasCorePermissions()) updatePermissionStatus(true);
+                else if (!permissionInFlight) requestCorePermissionsNow();
+            });
+            content.addView(permissionTest, matchWrap());
+            Button exportPermissions = actionButton("导出权限日志", 14, INK, Color.TRANSPARENT, SEPARATOR);
+            exportPermissions.setOnClickListener(view ->
+                    chooseDebugLogDestination(REQUEST_PERMISSION_LOG_EXPORT, "permission-diagnostics.csv"));
+            content.addView(exportPermissions, matchWrap());
+            Button export = actionButton("导出到站日志", 14, INK, Color.TRANSPARENT, SEPARATOR);
+            export.setOnClickListener(view ->
+                    chooseDebugLogDestination(REQUEST_DEBUG_LOG_EXPORT, "arrival-diagnostics.csv"));
+            content.addView(export, matchWrap());
+        }
         ScrollView settingsScroll = new ScrollView(this);
         settingsScroll.setVerticalScrollBarEnabled(false);
         settingsScroll.addView(content, matchWrap());
@@ -1141,11 +1254,39 @@ public final class MainActivity extends Activity {
                 }));
     }
 
+    @SuppressWarnings("deprecation")
+    private void chooseDebugLogDestination(int requestCode, String filename) {
+        Intent create = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("text/csv")
+                .putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                .putExtra(Intent.EXTRA_TITLE, filename);
+        try {
+            startActivityForResult(create, requestCode);
+        } catch (ActivityNotFoundException unavailable) {
+            toast("系统文件选择器不可用");
+        }
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (BuildConfig.DEBUG && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            if (requestCode == REQUEST_DEBUG_LOG_EXPORT) {
+                DebugReminderLog.export(this, data.getData(), DebugReminderLog.Journal.ARRIVAL);
+            } else if (requestCode == REQUEST_PERMISSION_LOG_EXPORT) {
+                DebugReminderLog.export(this, data.getData(), DebugReminderLog.Journal.PERMISSIONS);
+            }
+        }
+    }
+
     private void confirmClearData() {
         showStyledDialog(new AlertDialog.Builder(this).setTitle("清空本机数据？").setMessage("当前提醒、最近地点和设置都会删除。")
                 .setNegativeButton(getString(R.string.cancel), null).setPositiveButton("清空", (dialog, which) -> {
                     for (AppPrefs.FixedAlarm alarm : prefs.getFixedAlarms()) ScheduleManager.cancel(MainActivity.this, alarm.id);
                     prefs.clearAll();
+                    if (BuildConfig.DEBUG) DebugReminderLog.clear(this);
                     try {
                         ReminderRuntimeCoordinator.stopReminder(this);
                     } catch (RuntimeException ignored) {

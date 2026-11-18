@@ -21,7 +21,12 @@ public final class CoreLogicTest {
         testAmapDestinationLink();
         testAmapMobileLink();
         testBaiduMarkerLink();
+        testDeclaredWgs84IsPreserved();
+        testRouteUsesOnlyDestination();
+        testUnsupportedCoordinateSystemIsNotUsed();
+        testGeoQueryUsesDestinationCoordinates();
         testTencentMapLink();
+        testTencentRouteUsesOnlyDestination();
         testUnknownCoordinateSourceKeepsRawValue();
         testBd09ToGcj02RoundTrip();
         testEncodedMapLink();
@@ -139,6 +144,8 @@ public final class CoreLogicTest {
     private static void testAmapMobileLink() {
         PlaceInputParser.Result result = PlaceInputParser.parse("androidamap://viewMap?poiname=上海站&lat=31.2495&lon=121.4557&dev=1");
         check(result != null && result.hasCoordinates() && "上海站".equals(result.name), "amap mobile");
+        check(result.coordinateSystemVerified && close(result.latitude, 31.2495) && close(result.longitude, 121.4557),
+                "Amap Android dev=1 supplies coordinates without an offset");
     }
 
     private static void testBaiduMarkerLink() {
@@ -151,6 +158,56 @@ public final class CoreLogicTest {
         check(shift > 0.003 && shift < 0.03, "baidu link coordinates converted away from BD-09");
     }
 
+    private static void testDeclaredWgs84IsPreserved() {
+        PlaceInputParser.Result amap = PlaceInputParser.parse(
+                "https://uri.amap.com/marker?position=116.397,39.908&coordinate=wgs84&from=share");
+        check(amap != null && amap.hasCoordinates() && amap.coordinateSystemVerified
+                        && close(amap.latitude, 39.908) && close(amap.longitude, 116.397),
+                "declared Amap WGS-84 must not be converted again");
+        PlaceInputParser.Result baidu = PlaceInputParser.parse(
+                "baidumap://map/marker?location=39.908,116.397&coord_type=wgs84");
+        check(baidu != null && baidu.hasCoordinates() && baidu.coordinateSystemVerified
+                        && close(baidu.latitude, 39.908) && close(baidu.longitude, 116.397),
+                "declared Baidu WGS-84 must not be converted again");
+    }
+
+    private static void testRouteUsesOnlyDestination() {
+        PlaceInputParser.Result named = PlaceInputParser.parse(
+                "baidumap://map/direction?origin=39.98871,116.43234&destination=西直门&mode=driving");
+        check(named != null && !named.hasCoordinates() && "西直门".equals(named.name),
+                "named route destination must not use the origin coordinates");
+        PlaceInputParser.Result endpoint = PlaceInputParser.parse(
+                "baidumap://map/direction?origin=39.98871,116.43234"
+                        + "&destination=40.057406655722,116.2964407172&coord_type=bd09ll&mode=walking");
+        double[] wgs = CoordinateTransform.bd09ToWgs84(40.057406655722, 116.2964407172);
+        check(endpoint != null && endpoint.hasCoordinates() && endpoint.coordinateSystemVerified
+                        && close(endpoint.latitude, wgs[0]) && close(endpoint.longitude, wgs[1]),
+                "Baidu route coordinates use the latitude-first destination field");
+        check(PlaceInputParser.parse(
+                        "https://uri.amap.com/navigation?from=116.478346,39.997361,起点&to=&via=116.402796,39.936915") == null,
+                "route without a destination must not use origin or waypoint coordinates");
+        PlaceInputParser.Result splitEndpoint = PlaceInputParser.parse(
+                "amapuri://route/plan/?slat=39.92&slon=116.39&dlat=39.98&dlon=116.47&dname=下车点&dev=0");
+        double[] amapWgs = CoordinateTransform.gcj02ToWgs84(39.98, 116.47);
+        check(splitEndpoint != null && splitEndpoint.hasCoordinates() && "下车点".equals(splitEndpoint.name)
+                        && close(splitEndpoint.latitude, amapWgs[0]) && close(splitEndpoint.longitude, amapWgs[1]),
+                "Amap app route uses the explicitly named destination latitude and longitude");
+    }
+
+    private static void testUnsupportedCoordinateSystemIsNotUsed() {
+        PlaceInputParser.Result result = PlaceInputParser.parse(
+                "baidumap://map/marker?location=39.908,116.397&title=测试地点&coord_type=bd09mc");
+        check(result != null && !result.hasCoordinates() && "测试地点".equals(result.name),
+                "unsupported projected coordinates must not be interpreted as degrees");
+    }
+
+    private static void testGeoQueryUsesDestinationCoordinates() {
+        PlaceInputParser.Result result = PlaceInputParser.parse("geo:0,0?q=31.2495,121.4557(Shanghai)");
+        check(result != null && result.hasCoordinates() && "Shanghai".equals(result.name)
+                        && close(result.latitude, 31.2495) && close(result.longitude, 121.4557),
+                "geo query coordinates must take priority over the placeholder center");
+    }
+
     private static void testTencentMapLink() {
         PlaceInputParser.Result result = PlaceInputParser.parse("https://map.qq.com/?location=31.2495,121.4557&title=上海站");
         check(result != null && result.hasCoordinates(), "tencent map coordinates");
@@ -158,6 +215,35 @@ public final class CoreLogicTest {
         double[] backToGcj = CoordinateTransform.wgs84ToGcj02(result.latitude, result.longitude);
         check(Math.abs(backToGcj[0] - 31.2495) < 0.00002 && Math.abs(backToGcj[1] - 121.4557) < 0.00002,
                 "tencent link coordinates converted from GCJ-02");
+    }
+
+    private static void testTencentRouteUsesOnlyDestination() {
+        String appRoute = "qqmap://map/routeplan?type=drive&fromcoord=39.907380,116.388501";
+        double[] wgs = CoordinateTransform.gcj02ToWgs84(40.010024, 116.392239);
+        PlaceInputParser.Result named = PlaceInputParser.parse(
+                "分享路线 " + appRoute + "&to=北门%20站&tocoord=40.010024%2C116.392239&referer=fixture");
+        check(named != null && named.hasCoordinates() && "北门 站".equals(named.name)
+                        && named.coordinateSystemVerified && close(named.latitude, wgs[0]) && close(named.longitude, wgs[1]),
+                "Tencent app route must import and convert the named destination, not the origin");
+
+        PlaceInputParser.Result unnamed = PlaceInputParser.parse(appRoute + "&tocoord=40.010024,116.392239");
+        check(unnamed != null && unnamed.hasCoordinates() && unnamed.name.isEmpty()
+                        && close(unnamed.latitude, wgs[0]) && close(unnamed.longitude, wgs[1]),
+                "Tencent app route without a name must still use the destination coordinates");
+
+        PlaceInputParser.Result nameOnly = PlaceInputParser.parse(appRoute + "&to=北门&passes=coord:39.98,116.30");
+        check(nameOnly != null && !nameOnly.hasCoordinates() && "北门".equals(nameOnly.name),
+                "Tencent route without destination coordinates may use only the destination name");
+        check(PlaceInputParser.parse(appRoute + "&tocoord=invalid&passes=coord:39.98,116.30") == null,
+                "Tencent route with no usable destination must not use the origin or a waypoint");
+        check(PlaceInputParser.parse(appRoute) == null,
+                "Tencent route with only an origin must not fall back to coordinate matching");
+
+        PlaceInputParser.Result gps = PlaceInputParser.parse("https://apis.map.qq.com/uri/v1/routeplan?type=drive"
+                + "&from=Origin%26tocoord%3D39.907380%2C116.388501&to=北门&tocoord=40.010024,116.392239&coord_type=1");
+        check(gps != null && gps.hasCoordinates() && gps.coordinateSystemVerified
+                        && gps.latitude == 40.010024 && gps.longitude == 116.392239,
+                "Tencent web GPS route must preserve the real destination and ignore encoded origin text");
     }
 
     private static void testUnknownCoordinateSourceKeepsRawValue() {
@@ -287,15 +373,18 @@ public final class CoreLogicTest {
                         120_000L + ReminderRuntime.LOCATION_TIMEOUT_MS)
                         == ReminderStateLogic.State.WAITING_LOCATION,
                 "first location is allowed within location timeout");
-        check(ReminderStateLogic.classify(task, ready.heartbeat(120_000L + ReminderRuntime.LOCATION_TIMEOUT_MS + 1L),
-                        120_000L + ReminderRuntime.LOCATION_TIMEOUT_MS + 1L)
+        long lastHeartbeat = 120_000L + ReminderRuntime.LOCATION_TIMEOUT_MS;
+        long uiRefresh = lastHeartbeat + 10_000L;
+        check(ReminderStateLogic.classify(task, ready.heartbeat(lastHeartbeat), uiRefresh)
+                        == ReminderStateLogic.State.WAITING_LOCATION,
+                "UI refresh before the next heartbeat leaves missing first fix to service recovery");
+        check(ReminderStateLogic.classify(task, located.heartbeat(lastHeartbeat), uiRefresh)
+                        == ReminderStateLogic.State.WAITING_LOCATION,
+                "UI refresh before the next heartbeat leaves stale location to service recovery");
+        check(ReminderStateLogic.classify(task,
+                        ReminderRuntime.Snapshot.failed(ReminderRuntime.Failure.LOCATION_STALE, uiRefresh), uiRefresh)
                         == ReminderStateLogic.State.NEEDS_RESUME,
-                "missing first location eventually needs resume");
-        check(ReminderStateLogic.classify(task, located.heartbeat(
-                        120_001L + ReminderRuntime.LOCATION_TIMEOUT_MS + 1L)
-                        , 120_001L + ReminderRuntime.LOCATION_TIMEOUT_MS + 1L)
-                        == ReminderStateLogic.State.NEEDS_RESUME,
-                "stale location eventually needs resume");
+                "failed location recovery still needs manual resume");
         check(ReminderStateLogic.classify(task, stale, 250_000L) == ReminderStateLogic.State.NEEDS_RESUME,
                 "stale service heartbeat needs resume");
         task.markInterrupted();

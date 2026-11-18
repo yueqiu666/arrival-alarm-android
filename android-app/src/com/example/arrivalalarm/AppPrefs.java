@@ -13,7 +13,7 @@ import java.util.function.Function;
 
 public final class AppPrefs {
     private static final String FILE = "arrival_alarm_private";
-    private static final String TASK = "task";
+    static final String TASK = "task";
     private static final String RECENTS = "recents";
     private static final String FIXED_ALARMS = "fixed_alarms";
     private static final int SCHEMA_VERSION = 1;

@@ -26,6 +26,7 @@ public final class ShareParser {
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             Uri data = intent.getData();
             if ("arrivalalarm".equalsIgnoreCase(data.getScheme())) {
+                if (!data.isHierarchical() || !"set".equals(data.getHost())) return null;
                 String name = safe(data.getQueryParameter("name"));
                 Double lat = number(data.getQueryParameter("lat"));
                 Double lng = number(data.getQueryParameter("lng"));
@@ -68,7 +69,7 @@ public final class ShareParser {
         public final Double latitude;
         public final Double longitude;
         public final String source;
-        /** 坐标是否来自可识别坐标系并已转换到 WGS-84。 */
+        /** 坐标系已识别，返回值为 WGS-84。 */
         public final boolean coordinateSystemVerified;
 
         ParsedShare(String name, Double latitude, Double longitude, String source, boolean coordinateSystemVerified) {

@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -14,8 +15,10 @@ import android.os.SystemClock;
 /** Coordinates user commands and the foreground service without exposing runtime state to the UI. */
 public final class ReminderRuntimeCoordinator {
     public static final int RESTORE_NOTIFICATION_ID = 300;
+    static final String ACTION_RESUME_REMINDER = "com.example.arrivalalarm.NOTIFICATION_RESUME";
+    static final String RESUME_TASK_SCHEME = "arrivalalarm-resume";
 
-    private static final String CHANNEL_RESTORE = "manual_restore";
+    static final String CHANNEL_RESTORE = "manual_restore";
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     // Main-thread state. The task may be cleared before Android delivers the start command.
     private static boolean foregroundStartPending;
@@ -59,6 +62,7 @@ public final class ReminderRuntimeCoordinator {
         AppPrefs.ReminderTask task = new AppPrefs.ReminderTask("task-" + java.util.UUID.randomUUID(),
                 destination, prefs.getRadius(), AppPrefs.ReminderTask.STATUS_STARTING, now);
         prefs.saveTaskAndRecent(task);
+        if (BuildConfig.DEBUG) DebugReminderLog.begin(context);
         return startPersistedReminder(context);
     }
 
@@ -121,10 +125,11 @@ public final class ReminderRuntimeCoordinator {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent content = PendingIntent.getActivity(context, 301, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Intent resumeIntent = new Intent(context, ActionReceiver.class)
-                .setAction(ActionReceiver.ACTION_RESUME_REMINDER);
-        PendingIntent resume = PendingIntent.getBroadcast(context, 302, resumeIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent resumeIntent = new Intent(open)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .setAction(ACTION_RESUME_REMINDER)
+                .setData(Uri.fromParts(RESUME_TASK_SCHEME, task.id, null));
+        PendingIntent resume = PendingIntent.getActivity(context, 302, resumeIntent, PendingIntent.FLAG_IMMUTABLE);
         String suffix = reason == null || reason.isEmpty() ? "" : " " + reason;
         Notification notification = new Notification.Builder(context, CHANNEL_RESTORE)
                 .setSmallIcon(com.example.arrivalalarm.R.drawable.ic_notification)

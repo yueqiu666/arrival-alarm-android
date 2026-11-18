@@ -8,7 +8,6 @@ import android.app.NotificationManager;
 public final class ActionReceiver extends BroadcastReceiver {
     public static final String ACTION_ARRIVED = "com.example.arrivalalarm.ARRIVED";
     public static final String ACTION_STOP_REMINDER = "com.example.arrivalalarm.NOTIFICATION_STOP";
-    public static final String ACTION_RESUME_REMINDER = "com.example.arrivalalarm.NOTIFICATION_RESUME";
     public static final String ACTION_DISMISS_JOURNEY = "com.example.arrivalalarm.DISMISS_JOURNEY";
 
     @Override
@@ -30,16 +29,6 @@ public final class ActionReceiver extends BroadcastReceiver {
         }
         if (ACTION_STOP_REMINDER.equals(action)) {
             ReminderRuntimeCoordinator.stopReminder(context);
-            return;
-        }
-        if (ACTION_RESUME_REMINDER.equals(action)) {
-            if (!ReminderRuntimeCoordinator.hasCorePermissions(context)) {
-                Intent open = new Intent(context, MainActivity.class)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                context.startActivity(open);
-                return;
-            }
-            ReminderRuntimeCoordinator.resumeReminder(context);
         }
     }
 }
