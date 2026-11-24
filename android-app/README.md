@@ -2,6 +2,8 @@
 
 这是“别坐过站”的 Android 原生实现，正式 Application ID 为 `com.navobell.arrivalalarm`，最低 Android 8.0（API 26）。项目使用固定版本的 Gradle/AGP，无 AndroidX 或 Google Play Services 依赖。配置对应变体的高德 Key 后，用户可主动切换到高德搜索。
 
+当前源码版本为 `v1.0`（versionCode 9）。下表的 `0.4.3-debug` 对应此前提供的小范围试用包。
+
 ## 测试包与发布包
 
 | 用途 | 产物 | 验证范围 |

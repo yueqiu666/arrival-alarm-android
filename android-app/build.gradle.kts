@@ -50,8 +50,8 @@ android {
         applicationId = "com.navobell.arrivalalarm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.4.3"
+        versionCode = 9
+        versionName = "v1.0"
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebKey\"")
         testInstrumentationRunner = "com.example.arrivalalarm.LifecycleInstrumentationRunner"
     }
